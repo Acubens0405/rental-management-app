@@ -80,6 +80,19 @@ console.log("Rental app script loaded");
   "use strict";
 
   var STORAGE_KEY = "welfareRentalMvp.v1";
+  var SUPABASE_CONFIG_KEY = "welfareRentalSupabase.v1";
+  var SUPABASE_PROJECT_URL = "https://fdsrgfxvjtqlbcisgdxu.supabase.co";
+  var SUPABASE_ANON_KEY = "sb_publishable_LCZ7zuoMtS9UMFQHWxONPQ_fUeRFaSW";
+  var CLOUD_TABLES = {
+    products: "rental_products",
+    dealers: "rental_dealers",
+    contracts: "rental_contracts"
+  };
+  var supabaseClient = null;
+  var realtimeChannel = null;
+  var cloudEnabled = false;
+  var cloudReady = false;
+  var applyingRemoteChange = false;
   var activeStatuses = ["契約中", "返却予定", "点検中"];
   var PRODUCT_CATALOG = [
     { serial: "see01-000001", name: "楽歩ベーシック", category: "車いす", price: 10000, cost: 80000, stock: 1 },
@@ -261,12 +274,247 @@ console.log("Rental app script loaded");
     };
   }
 
+  function productToRow(product) {
+    return {
+      id: product.id,
+      serial: product.serial,
+      name: product.name,
+      category: product.category,
+      price: Number(product.price || 0),
+      cost: Number(product.cost || 0),
+      stock: Number(product.stock || 0),
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  function dealerToRow(dealer) {
+    return {
+      id: dealer.id,
+      name: dealer.name,
+      contact: dealer.contact,
+      phone: dealer.phone,
+      address: dealer.address,
+      memo: dealer.memo,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  function contractToRow(contract) {
+    return {
+      id: contract.id,
+      product_id: contract.productId,
+      dealer_id: contract.dealerId,
+      start_date: contract.startDate || null,
+      planned_end_date: contract.plannedEndDate || null,
+      return_date: contract.returnDate || null,
+      quantity: Number(contract.quantity || 1),
+      status: contract.status,
+      memo: contract.memo,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  function rowToProduct(row) {
+    return normalizeProduct({
+      id: row.id,
+      serial: row.serial,
+      name: row.name,
+      category: row.category,
+      price: row.price,
+      cost: row.cost,
+      stock: row.stock
+    });
+  }
+
+  function rowToDealer(row) {
+    return normalizeDealer({
+      id: row.id,
+      name: row.name,
+      contact: row.contact,
+      phone: row.phone,
+      address: row.address,
+      memo: row.memo
+    });
+  }
+
+  function rowToContract(row) {
+    return normalizeContract({
+      id: row.id,
+      productId: row.product_id,
+      dealerId: row.dealer_id,
+      startDate: row.start_date,
+      plannedEndDate: row.planned_end_date,
+      returnDate: row.return_date,
+      quantity: row.quantity,
+      status: row.status,
+      memo: row.memo
+    });
+  }
+
   function saveState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (error) {
       console.error("Failed to save localStorage data", error);
       alert("ブラウザ保存に失敗しました。空き容量やプライベートモードをご確認ください。");
+    }
+  }
+
+  function loadCloudConfig() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(SUPABASE_CONFIG_KEY) || "null") || {};
+      return {
+        url: saved.url || SUPABASE_PROJECT_URL,
+        anonKey: saved.anonKey || SUPABASE_ANON_KEY
+      };
+    } catch (error) {
+      console.error("Failed to load Supabase settings", error);
+      return {
+        url: SUPABASE_PROJECT_URL,
+        anonKey: SUPABASE_ANON_KEY
+      };
+    }
+  }
+
+  function saveCloudConfig(config) {
+    localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(config));
+  }
+
+  function clearCloudConfig() {
+    localStorage.removeItem(SUPABASE_CONFIG_KEY);
+  }
+
+  function setCloudStatus(message) {
+    var status = getInput("cloudStatus");
+    if (status) {
+      status.textContent = message;
+    }
+  }
+
+  function createSupabaseClient(config) {
+    if (!config.url || !config.anonKey || !window.supabase || !window.supabase.createClient) {
+      return null;
+    }
+    return window.supabase.createClient(config.url, config.anonKey);
+  }
+
+  async function initCloudStorage() {
+    var config = loadCloudConfig();
+    setValue("supabaseUrl", config.url || "");
+    setValue("supabaseAnonKey", config.anonKey || "");
+    supabaseClient = createSupabaseClient(config);
+    cloudEnabled = Boolean(supabaseClient);
+    if (!cloudEnabled) {
+      setCloudStatus("未設定：この端末のブラウザ内に保存中");
+      return;
+    }
+    setCloudStatus("Supabase接続中...");
+    try {
+      await loadStateFromCloud();
+      subscribeCloudChanges();
+      cloudReady = true;
+      setCloudStatus("クラウド同期中：他端末の更新も自動反映されます");
+    } catch (error) {
+      console.error("Supabase connection failed", error);
+      cloudEnabled = false;
+      setCloudStatus("Supabase接続エラー：URL、anon key、テーブル設定を確認してください");
+    }
+  }
+
+  async function loadStateFromCloud() {
+    var productsResult = await supabaseClient.from(CLOUD_TABLES.products).select("*").order("created_at", { ascending: true });
+    var dealersResult = await supabaseClient.from(CLOUD_TABLES.dealers).select("*").order("created_at", { ascending: true });
+    var contractsResult = await supabaseClient.from(CLOUD_TABLES.contracts).select("*").order("created_at", { ascending: true });
+    if (productsResult.error || dealersResult.error || contractsResult.error) {
+      throw productsResult.error || dealersResult.error || contractsResult.error;
+    }
+    var cloudProducts = (productsResult.data || []).map(rowToProduct);
+    state = {
+      products: cloudProducts.length ? cloudProducts : state.products,
+      dealers: (dealersResult.data || []).map(rowToDealer),
+      contracts: (contractsResult.data || []).map(rowToContract)
+    };
+    if (!cloudProducts.length) {
+      await syncLocalToCloud();
+    }
+    saveState();
+    renderAll();
+  }
+
+  function subscribeCloudChanges() {
+    if (!supabaseClient) {
+      return;
+    }
+    if (realtimeChannel) {
+      supabaseClient.removeChannel(realtimeChannel);
+    }
+    realtimeChannel = supabaseClient
+      .channel("rental-management-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: CLOUD_TABLES.products }, reloadFromCloudSoon)
+      .on("postgres_changes", { event: "*", schema: "public", table: CLOUD_TABLES.dealers }, reloadFromCloudSoon)
+      .on("postgres_changes", { event: "*", schema: "public", table: CLOUD_TABLES.contracts }, reloadFromCloudSoon)
+      .subscribe();
+  }
+
+  function reloadFromCloudSoon() {
+    if (applyingRemoteChange || !cloudEnabled) {
+      return;
+    }
+    applyingRemoteChange = true;
+    setTimeout(async function () {
+      try {
+        await loadStateFromCloud();
+        setCloudStatus("クラウド同期中：最新データに更新しました");
+      } catch (error) {
+        console.error("Supabase realtime reload failed", error);
+        setCloudStatus("クラウド再読込エラー：通信状態を確認してください");
+      } finally {
+        applyingRemoteChange = false;
+      }
+    }, 300);
+  }
+
+  async function upsertCloudItem(collection, item) {
+    if (!cloudEnabled || !supabaseClient) {
+      return;
+    }
+    var table = CLOUD_TABLES[collection];
+    var row = collection === "products" ? productToRow(item) : collection === "dealers" ? dealerToRow(item) : contractToRow(item);
+    var result = await supabaseClient.from(table).upsert(row);
+    if (result.error) {
+      throw result.error;
+    }
+  }
+
+  async function deleteCloudItem(collection, id) {
+    if (!cloudEnabled || !supabaseClient) {
+      return;
+    }
+    var result = await supabaseClient.from(CLOUD_TABLES[collection]).delete().eq("id", id);
+    if (result.error) {
+      throw result.error;
+    }
+  }
+
+  async function syncLocalToCloud() {
+    if (!cloudEnabled || !supabaseClient) {
+      setCloudStatus("Supabase未設定：同期設定を保存してください");
+      return;
+    }
+    try {
+      if (state.products.length) {
+        await supabaseClient.from(CLOUD_TABLES.products).upsert(state.products.map(productToRow));
+      }
+      if (state.dealers.length) {
+        await supabaseClient.from(CLOUD_TABLES.dealers).upsert(state.dealers.map(dealerToRow));
+      }
+      if (state.contracts.length) {
+        await supabaseClient.from(CLOUD_TABLES.contracts).upsert(state.contracts.map(contractToRow));
+      }
+      setCloudStatus("クラウド同期中：現在データを送信しました");
+    } catch (error) {
+      console.error("Supabase sync failed", error);
+      setCloudStatus("クラウド送信エラー：Supabase設定を確認してください");
     }
   }
 
@@ -684,6 +932,10 @@ console.log("Rental app script loaded");
     }
     saveState();
     renderAll();
+    upsertCloudItem(collection, item).catch(function (error) {
+      console.error("Cloud save failed", error);
+      setCloudStatus("クラウド保存エラー：通信状態またはSupabase権限を確認してください");
+    });
   }
 
   function deleteItem(collection, id) {
@@ -701,6 +953,10 @@ console.log("Rental app script loaded");
     }
     saveState();
     renderAll();
+    deleteCloudItem(collection, id).catch(function (error) {
+      console.error("Cloud delete failed", error);
+      setCloudStatus("クラウド削除エラー：通信状態またはSupabase権限を確認してください");
+    });
   }
 
   function editItem(collection, id) {
@@ -829,16 +1085,50 @@ console.log("Rental app script loaded");
       exportCsv("all");
     });
 
-    getInput("resetDemoData").addEventListener("click", function () {
+    getInput("resetDemoData").addEventListener("click", async function () {
       if (!confirm("保存済みデータを初期デモ状態に戻しますか？")) {
         return;
       }
       localStorage.removeItem(STORAGE_KEY);
       state = loadState();
+      saveState();
+      if (cloudEnabled && supabaseClient) {
+        try {
+          await supabaseClient.from(CLOUD_TABLES.contracts).delete().neq("id", "");
+          await supabaseClient.from(CLOUD_TABLES.dealers).delete().neq("id", "");
+          await supabaseClient.from(CLOUD_TABLES.products).delete().neq("id", "");
+          await syncLocalToCloud();
+        } catch (error) {
+          console.error("Cloud reset failed", error);
+          setCloudStatus("クラウド初期化エラー：Supabase権限を確認してください");
+        }
+      }
       renderAll();
     });
 
     getInput("contractDealer").addEventListener("change", updateContractDealerFields);
+    getInput("saveCloudSettings").addEventListener("click", async function () {
+      var config = {
+        url: getInput("supabaseUrl").value.trim(),
+        anonKey: getInput("supabaseAnonKey").value.trim()
+      };
+      if (!config.url || !config.anonKey) {
+        alert("Supabase Project URL と anon public key を入力してください。");
+        return;
+      }
+      saveCloudConfig(config);
+      await initCloudStorage();
+    });
+    getInput("syncLocalToCloud").addEventListener("click", syncLocalToCloud);
+    getInput("clearCloudSettings").addEventListener("click", function () {
+      clearCloudConfig();
+      cloudEnabled = false;
+      cloudReady = false;
+      supabaseClient = null;
+      setValue("supabaseUrl", "");
+      setValue("supabaseAnonKey", "");
+      setCloudStatus("同期解除：この端末のブラウザ内に保存中");
+    });
   }
 
   function exportCsv(type) {
@@ -917,6 +1207,7 @@ console.log("Rental app script loaded");
       setValue("contractStart", todayIso());
       setValue("contractEndPlan", addDaysIso(30));
       renderAll();
+      initCloudStorage();
     } catch (error) {
       console.error("App initialization failed", error);
     }
