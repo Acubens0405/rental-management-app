@@ -27,6 +27,21 @@
     </div>
   </header>
 
+  <section class="cloud-panel" aria-label="クラウド同期設定">
+    <div>
+      <strong>クラウド同期</strong>
+      <p id="cloudStatus">未設定：この端末のブラウザ内に保存中</p>
+    </div>
+    <div class="cloud-controls">
+      <input id="supabaseUrl" type="url" placeholder="Supabase Project URL">
+      <input id="supabaseAnonKey" type="password" placeholder="Supabase anon public key">
+      <button class="secondary-button" id="saveCloudSettings" type="button">同期設定を保存</button>
+      <button class="secondary-button" id="syncLocalToCloud" type="button">現在データをクラウドへ送信</button>
+      <button class="danger-button" id="clearCloudSettings" type="button">同期解除</button>
+    </div>
+    <p class="cloud-note">同じSupabase設定を使う端末同士でデータを共有し、入力・編集・削除後に自動更新します。</p>
+  </section>
+
   <nav class="tab-bar" aria-label="主要画面">
     <a class="tab-button active" href="#dashboard" data-tab-target="dashboard" aria-controls="dashboard" aria-selected="true">ダッシュボード</a>
     <a class="tab-button" href="#products" data-tab-target="products" aria-controls="products" aria-selected="false">商品管理</a>
@@ -189,6 +204,7 @@
     <p>現在のデータはこの端末のブラウザ内に保存されます。複数端末で共有するにはクラウドDB連携が必要です。将来的にはSupabase、Firebase、Googleスプレッドシート連携などで同期できます。</p>
   </footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="script.js" defer></script>
   <script>
     (function () {
