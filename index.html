@@ -30,7 +30,6 @@
   <nav class="tab-bar" aria-label="主要画面">
     <a class="tab-button active" href="#dashboard" data-tab-target="dashboard" aria-controls="dashboard" aria-selected="true">ダッシュボード</a>
     <a class="tab-button" href="#products" data-tab-target="products" aria-controls="products" aria-selected="false">商品管理</a>
-    <a class="tab-button" href="#customers" data-tab-target="customers" aria-controls="customers" aria-selected="false">顧客管理</a>
     <a class="tab-button" href="#dealers" data-tab-target="dealers" aria-controls="dealers" aria-selected="false">販売店管理</a>
     <a class="tab-button" href="#contracts" data-tab-target="contracts" aria-controls="contracts" aria-selected="false">契約管理</a>
     <a class="tab-button" href="#billing" data-tab-target="billing" aria-controls="billing" aria-selected="false">請求・売上</a>
@@ -42,13 +41,17 @@
       <div class="section-heading">
         <div>
           <h2>ダッシュボード</h2>
-          <p>契約状況、在庫、月額売上見込みをまとめて確認します。</p>
+          <p>契約状況、在庫、請求予定、原価回収状況をまとめて確認します。</p>
         </div>
       </div>
       <div class="kpi-grid" id="dashboardKpis"></div>
       <section class="content-block">
         <h3>商品別 月額売上見込み</h3>
         <div class="card-grid" id="productRevenueCards"></div>
+      </section>
+      <section class="content-block">
+        <h3>品番別 原価回収状況</h3>
+        <div class="card-grid" id="serialRecoveryCards"></div>
       </section>
       <section class="content-block">
         <h3>直近アラート</h3>
@@ -65,9 +68,10 @@
       </div>
       <form class="form-card" id="productForm">
         <input type="hidden" id="productId">
-        <label>商品名<input id="productName" type="text" required placeholder="例：楽歩ベーシック"></label>
-        <label>カテゴリ<input id="productCategory" type="text" required placeholder="例：車いす"></label>
+        <label>品番<input id="productSerial" type="text" placeholder="例：see01-000001"></label>
+        <label>商品名／カテゴリ<select id="productName" required></select></label>
         <label>月額レンタル料<input id="productPrice" type="number" min="0" step="1000" required></label>
+        <label>原価額<input id="productCost" type="number" min="0" step="1000" placeholder="例：80000"></label>
         <label>保有台数<input id="productStock" type="number" min="0" step="1" required></label>
         <div class="form-actions">
           <button class="primary-button" type="submit">保存</button>
@@ -79,31 +83,10 @@
         <button class="secondary-button" data-export="products" type="button">商品CSV</button>
       </div>
       <div class="responsive-list" id="productList"></div>
-    </section>
-
-    <section class="tab-panel" id="customers" data-tab-panel hidden>
-      <div class="section-heading">
-        <div>
-          <h2>顧客管理</h2>
-          <p>利用者情報は必要最小限で登録します。</p>
-        </div>
-      </div>
-      <form class="form-card" id="customerForm">
-        <input type="hidden" id="customerId">
-        <label>顧客名<input id="customerName" type="text" required placeholder="例：山田 太郎"></label>
-        <label>電話番号<input id="customerPhone" type="tel" placeholder="例：090-0000-0000"></label>
-        <label>住所<input id="customerAddress" type="text" placeholder="例：大阪府大阪市"></label>
-        <label>メモ<textarea id="customerMemo" rows="3" placeholder="介護度、連絡希望時間など"></textarea></label>
-        <div class="form-actions">
-          <button class="primary-button" type="submit">保存</button>
-          <button class="secondary-button" id="clearCustomerForm" type="button">入力クリア</button>
-        </div>
-      </form>
-      <div class="list-toolbar">
-        <strong>顧客一覧</strong>
-        <button class="secondary-button" data-export="customers" type="button">顧客CSV</button>
-      </div>
-      <div class="responsive-list" id="customerList"></div>
+      <section class="content-block">
+        <h3>品番別収益</h3>
+        <div class="responsive-list" id="productProfitList"></div>
+      </section>
     </section>
 
     <section class="tab-panel" id="dealers" data-tab-panel hidden>
@@ -118,6 +101,7 @@
         <label>販売店名<input id="dealerName" type="text" required placeholder="例：福祉用具ショップA"></label>
         <label>担当者<input id="dealerContact" type="text" placeholder="例：佐藤様"></label>
         <label>電話番号<input id="dealerPhone" type="tel" placeholder="例：06-0000-0000"></label>
+        <label>住所<input id="dealerAddress" type="text" placeholder="例：大阪府大阪市"></label>
         <label>メモ<textarea id="dealerMemo" rows="3" placeholder="商談状況、請求条件など"></textarea></label>
         <div class="form-actions">
           <button class="primary-button" type="submit">保存</button>
@@ -141,8 +125,9 @@
       <form class="form-card wide" id="contractForm">
         <input type="hidden" id="contractId">
         <label>商品<select id="contractProduct" required></select></label>
-        <label>顧客<select id="contractCustomer" required></select></label>
         <label>販売店<select id="contractDealer" required></select></label>
+        <label>担当者<input id="contractContact" type="text" readonly placeholder="販売店を選択すると自動表示"></label>
+        <label>担当者電話番号<input id="contractContactPhone" type="tel" readonly placeholder="販売店を選択すると自動表示"></label>
         <label>開始日<input id="contractStart" type="date" required></label>
         <label>終了予定日<input id="contractEndPlan" type="date" required></label>
         <label>返却日<input id="contractReturn" type="date"></label>
@@ -170,12 +155,12 @@
       <div class="section-heading">
         <div>
           <h2>請求・売上一覧</h2>
-          <p>契約中・返却予定・点検中の月額売上見込みを確認します。</p>
+          <p>月末の請求書作成に必要な請求額、日割り額、予定金額を確認します。</p>
         </div>
       </div>
       <div class="list-toolbar">
-        <strong id="billingSummary">月額売上見込み</strong>
-        <button class="secondary-button" data-export="billing" type="button">請求CSV</button>
+        <strong id="billingSummary">今月の請求予定額</strong>
+        <button class="secondary-button" data-export="billing" type="button">請求書CSV</button>
       </div>
       <div class="responsive-list" id="billingList"></div>
     </section>
@@ -201,7 +186,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>データはこの端末のブラウザ内に保存されます。別端末との共有はクラウドDB対応時に追加できます。</p>
+    <p>現在のデータはこの端末のブラウザ内に保存されます。複数端末で共有するにはクラウドDB連携が必要です。将来的にはSupabase、Firebase、Googleスプレッドシート連携などで同期できます。</p>
   </footer>
 
   <script src="script.js" defer></script>
@@ -213,6 +198,8 @@
           var panels = Array.prototype.slice.call(document.querySelectorAll("[data-tab-panel]"));
           if (!buttons.length || !panels.length) return;
           function showTab(id) {
+            var exists = panels.some(function (panel) { return panel.id === id; });
+            if (!id || !exists) id = "dashboard";
             panels.forEach(function (panel) { panel.hidden = panel.id !== id; });
             buttons.forEach(function (button) {
               var active = button.getAttribute("data-tab-target") === id;

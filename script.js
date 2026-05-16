@@ -25,8 +25,11 @@ console.log("Rental app script loaded");
       }
 
       function showTab(targetId) {
-        if (!targetId) {
-          return;
+        var exists = panels.some(function (panel) {
+          return panel.id === targetId;
+        });
+        if (!targetId || !exists) {
+          targetId = "dashboard";
         }
 
         panels.forEach(function (panel) {
@@ -78,13 +81,24 @@ console.log("Rental app script loaded");
 
   var STORAGE_KEY = "welfareRentalMvp.v1";
   var activeStatuses = ["契約中", "返却予定", "点検中"];
-  var defaultProducts = [
-    { id: createId(), name: "楽歩ベーシック", category: "車いす", price: 10000, stock: 5 },
-    { id: createId(), name: "emigoⅢ", category: "車いす", price: 10000, stock: 5 },
-    { id: createId(), name: "neoNOPPO", category: "歩行車", price: 10000, stock: 5 },
-    { id: createId(), name: "KC01", category: "電動車いす", price: 20000, stock: 3 },
-    { id: createId(), name: "電動楽歩", category: "電動車いす", price: 40000, stock: 2 }
+  var PRODUCT_CATALOG = [
+    { serial: "see01-000001", name: "楽歩ベーシック", category: "車いす", price: 10000, cost: 80000, stock: 1 },
+    { serial: "see02-000046", name: "emigoⅢ", category: "車いす", price: 10000, cost: 85000, stock: 1 },
+    { serial: "neo-000001", name: "neoNOPPO", category: "歩行車", price: 10000, cost: 70000, stock: 1 },
+    { serial: "KC01-000012", name: "KC01", category: "電動車いす", price: 20000, cost: 180000, stock: 1 },
+    { serial: "eraku-000001", name: "電動楽歩", category: "電動車いす", price: 40000, cost: 280000, stock: 1 }
   ];
+  var defaultProducts = PRODUCT_CATALOG.map(function (product) {
+    return {
+      id: createId(),
+      serial: product.serial,
+      name: product.name,
+      category: product.category,
+      price: product.price,
+      cost: product.cost,
+      stock: product.stock
+    };
+  });
 
   var state = loadState();
 
@@ -94,6 +108,32 @@ console.log("Rental app script loaded");
 
   function yen(value) {
     return Number(value || 0).toLocaleString("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
+  }
+
+  function productLabel(product) {
+    if (!product) {
+      return "-";
+    }
+    return product.name + "／" + product.category;
+  }
+
+  function productFullLabel(product) {
+    if (!product) {
+      return "-";
+    }
+    return (product.serial ? product.serial + " / " : "") + productLabel(product);
+  }
+
+  function productCatalogValue(product) {
+    return product.name + "||" + product.category;
+  }
+
+  function parseProductSelection(value) {
+    var parts = String(value || "").split("||");
+    return {
+      name: parts[0] || "",
+      category: parts[1] || ""
+    };
   }
 
   function formatDate(value) {
@@ -120,15 +160,55 @@ console.log("Rental app script loaded");
     return year + "-" + month + "-" + day;
   }
 
+  function parseIsoDate(value) {
+    if (!value) {
+      return null;
+    }
+    var date = new Date(value + "T00:00:00");
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function daysInMonth(year, monthIndex) {
+    return new Date(year, monthIndex + 1, 0).getDate();
+  }
+
+  function endOfMonth(date) {
+    return new Date(date.getFullYear(), date.getMonth(), daysInMonth(date.getFullYear(), date.getMonth()));
+  }
+
+  function startOfMonth(date) {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+
+  function inclusiveDays(start, end) {
+    return Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  }
+
+  function sameMonth(a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+  }
+
+  function currentBillingMonth() {
+    var now = new Date();
+    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+  }
+
+  function billingMonthLabel(value) {
+    var parts = String(value || "").split("-");
+    if (parts.length !== 2) {
+      return value || "-";
+    }
+    return parts[0] + "年" + Number(parts[1]) + "月";
+  }
+
   function loadState() {
     try {
       var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       if (saved && Array.isArray(saved.products)) {
         return {
-          products: saved.products,
-          customers: saved.customers || [],
-          dealers: saved.dealers || [],
-          contracts: saved.contracts || []
+          products: saved.products.map(normalizeProduct),
+          dealers: (saved.dealers || []).map(normalizeDealer),
+          contracts: (saved.contracts || []).map(normalizeContract)
         };
       }
     } catch (error) {
@@ -137,13 +217,47 @@ console.log("Rental app script loaded");
 
     return {
       products: defaultProducts,
-      customers: [
-        { id: createId(), name: "山田 太郎", phone: "090-0000-0000", address: "大阪府大阪市", memo: "デモ顧客" }
-      ],
       dealers: [
-        { id: createId(), name: "福祉用具ショップA", contact: "佐藤様", phone: "06-0000-0000", memo: "評価中" }
+        { id: createId(), name: "デモ販売店", contact: "佐藤様", phone: "06-0000-0000", address: "大阪府大阪市中央区", memo: "評価中" }
       ],
       contracts: []
+    };
+  }
+
+  function normalizeProduct(product) {
+    return {
+      id: product.id || createId(),
+      serial: product.serial || "",
+      name: product.name || "",
+      category: product.category || "",
+      price: Number(product.price || 0),
+      cost: Number(product.cost || 0),
+      stock: Number(product.stock || 0)
+    };
+  }
+
+  function normalizeDealer(dealer) {
+    return {
+      id: dealer.id || createId(),
+      name: dealer.name || "",
+      contact: dealer.contact || "",
+      phone: dealer.phone || "",
+      address: dealer.address || "",
+      memo: dealer.memo || ""
+    };
+  }
+
+  function normalizeContract(contract) {
+    return {
+      id: contract.id || createId(),
+      productId: contract.productId || "",
+      dealerId: contract.dealerId || "",
+      startDate: contract.startDate || "",
+      plannedEndDate: contract.plannedEndDate || "",
+      returnDate: contract.returnDate || "",
+      quantity: Number(contract.quantity || 1),
+      status: contract.status || "契約中",
+      memo: contract.memo || ""
     };
   }
 
@@ -206,6 +320,83 @@ console.log("Rental app script loaded");
     return Number(product.price || 0) * Number(contract.quantity || 1);
   }
 
+  function monthlyAmount(contract) {
+    var product = byId("products", contract.productId);
+    return product ? Number(product.price || 0) * Number(contract.quantity || 1) : 0;
+  }
+
+  function proratedAmountForRange(contract, rangeStart, rangeEnd) {
+    var amount = monthlyAmount(contract);
+    if (!amount || !rangeStart || !rangeEnd || rangeEnd < rangeStart) {
+      return 0;
+    }
+    var monthDays = daysInMonth(rangeStart.getFullYear(), rangeStart.getMonth());
+    var usedDays = inclusiveDays(rangeStart, rangeEnd);
+    var fullMonth = rangeStart.getDate() === 1 && rangeEnd.getDate() === monthDays;
+    return fullMonth ? amount : Math.round(amount / monthDays * usedDays);
+  }
+
+  function contractPlannedRevenue(contract) {
+    var start = parseIsoDate(contract.startDate);
+    var end = parseIsoDate(contract.plannedEndDate);
+    if (!start || !end || end < start) {
+      return 0;
+    }
+    var total = 0;
+    var cursor = startOfMonth(start);
+    while (cursor <= end) {
+      var monthStart = startOfMonth(cursor);
+      var monthEnd = endOfMonth(cursor);
+      var usageStart = start > monthStart ? start : monthStart;
+      var usageEnd = end < monthEnd ? end : monthEnd;
+      total += proratedAmountForRange(contract, usageStart, usageEnd);
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    }
+    return total;
+  }
+
+  function contractInvoiceDetail(contract) {
+    var product = byId("products", contract.productId);
+    var start = parseIsoDate(contract.startDate);
+    var end = parseIsoDate(contract.plannedEndDate);
+    var targetStart = startOfMonth(new Date());
+    var targetEnd = endOfMonth(targetStart);
+    var detail = {
+      targetMonth: currentBillingMonth(),
+      monthly: product ? Number(product.price || 0) * Number(contract.quantity || 1) : 0,
+      daily: 0,
+      invoice: 0,
+      isProrated: false
+    };
+    if (!product || !start || !end || end < targetStart || start > targetEnd || !isActiveContract(contract)) {
+      return detail;
+    }
+    var usageStart = start > targetStart ? start : targetStart;
+    var usageEnd = end < targetEnd ? end : targetEnd;
+    detail.isProrated = !(usageStart.getDate() === 1 && usageEnd.getDate() === daysInMonth(usageStart.getFullYear(), usageStart.getMonth()));
+    detail.daily = proratedAmountForRange(contract, usageStart, usageEnd);
+    detail.invoice = detail.isProrated ? detail.daily : detail.monthly;
+    return detail;
+  }
+
+  function dealerForContract(contract) {
+    return byId("dealers", contract.dealerId);
+  }
+
+  function productRevenueStats(product) {
+    var cumulative = state.contracts.reduce(function (sum, contract) {
+      return contract.productId === product.id ? sum + contractPlannedRevenue(contract) : sum;
+    }, 0);
+    var cost = Number(product.cost || 0);
+    var rate = cost ? Math.round(cumulative / cost * 100) : 0;
+    return {
+      cumulative: cumulative,
+      rate: rate,
+      recovered: cost > 0 && cumulative >= cost,
+      profit: cumulative - cost
+    };
+  }
+
   function statusClass(status) {
     if (status === "返却予定") {
       return "status return";
@@ -241,6 +432,17 @@ console.log("Rental app script loaded");
     var monthly = activeContracts.reduce(function (sum, contract) {
       return sum + contractMonthlyRevenue(contract);
     }, 0);
+    var planned = activeContracts.reduce(function (sum, contract) {
+      return sum + contractPlannedRevenue(contract);
+    }, 0);
+    var invoiceThisMonth = activeContracts.reduce(function (sum, contract) {
+      return sum + contractInvoiceDetail(contract).invoice;
+    }, 0);
+    var productStats = state.products.map(function (product) {
+      return { product: product, stats: productRevenueStats(product) };
+    });
+    var recoveredCount = productStats.filter(function (item) { return item.stats.recovered; }).length;
+    var unrecoveredCount = productStats.filter(function (item) { return !item.stats.recovered; }).length;
     var returnAlerts = getReturnAlerts();
     var inspectionAlerts = getInspectionAlerts();
 
@@ -248,8 +450,12 @@ console.log("Rental app script loaded");
       kpi("現在の契約件数", activeContracts.length + "件", "契約中・返却予定・点検中"),
       kpi("貸出中台数", rented + "台", "稼働しているレンタル台数"),
       kpi("空き在庫台数", Math.max(totalStock - rented, 0) + "台", "保有台数から貸出中を差引"),
-      kpi("月額売上見込み", yen(monthly), "年間 " + yen(monthly * 12)),
-      kpi("年間売上見込み", yen(monthly * 12), "月額売上見込みの12か月換算"),
+      kpi("今月の請求予定額", yen(invoiceThisMonth), currentBillingMonth() + " 請求額合計"),
+      kpi("月額ストック売上", yen(monthly), "契約中商品の月額満額合計"),
+      kpi("予定総売上", yen(planned), "終了予定日までの予定金額合計"),
+      kpi("原価回収済み件数", recoveredCount + "件", "品番別の累計売上で判定"),
+      kpi("未回収件数", unrecoveredCount + "件", "原価未達の商品"),
+      kpi("年間ストック換算", yen(monthly * 12), "月額ストック売上の12か月換算"),
       kpi("商品数", state.products.length + "件", "登録済み商品"),
       kpi("返却予定件数", returnAlerts.length + "件", "7日以内または期限超過"),
       kpi("点検予定件数", inspectionAlerts.length + "件", "返却済み・点検中")
@@ -258,8 +464,13 @@ console.log("Rental app script loaded");
     getInput("productRevenueCards").innerHTML = state.products.map(function (product) {
       var rentedQty = productRentedQuantity(product.id);
       var revenue = rentedQty * Number(product.price || 0);
-      return '<article class="mini-card"><strong>' + escapeHtml(product.name) + '</strong>' +
+      return '<article class="mini-card"><strong>' + escapeHtml(productFullLabel(product)) + '</strong>' +
         '<span>' + rentedQty + '台稼働 / 月額 ' + yen(revenue) + '</span></article>';
+    }).join("") || renderEmpty("商品がありません。");
+
+    getInput("serialRecoveryCards").innerHTML = productStats.map(function (item) {
+      return '<article class="mini-card"><strong>' + escapeHtml(productFullLabel(item.product)) + '</strong>' +
+        '<span>原価 ' + yen(item.product.cost) + ' / 累計 ' + yen(item.stats.cumulative) + ' / 回収率 ' + item.stats.rate + '% / ' + (item.stats.recovered ? '原価回収済み' : '未回収') + '</span></article>';
     }).join("") || renderEmpty("商品がありません。");
 
     getInput("dashboardAlerts").innerHTML = [
@@ -278,26 +489,26 @@ console.log("Rental app script loaded");
     getInput("productList").innerHTML = state.products.map(function (product) {
       var rented = productRentedQuantity(product.id);
       var free = Math.max(Number(product.stock || 0) - rented, 0);
+      var stats = productRevenueStats(product);
       return '<article class="list-card">' +
-        '<div><div class="list-title">' + escapeHtml(product.name) + '</div><div class="list-meta">' + escapeHtml(product.category) + '</div></div>' +
+        '<div><div class="list-title">' + escapeHtml(productFullLabel(product)) + '</div><div class="list-meta">品番 / 商品名／カテゴリ</div></div>' +
         '<div><strong>' + yen(product.price) + '</strong><div class="list-meta">月額</div></div>' +
+        '<div><strong>' + yen(product.cost) + '</strong><div class="list-meta">原価額</div></div>' +
         '<div><strong>' + Number(product.stock || 0) + '台</strong><div class="list-meta">保有</div></div>' +
-        '<div><strong>' + free + '台</strong><div class="list-meta">空き</div></div>' +
+        '<div><strong>' + free + '台</strong><div class="list-meta">空き / 回収率 ' + stats.rate + '%</div></div>' +
         renderActions("products", product.id) +
         '</article>';
     }).join("") || renderEmpty("商品を登録してください。");
-  }
-
-  function renderCustomers() {
-    getInput("customerList").innerHTML = state.customers.map(function (customer) {
+    getInput("productProfitList").innerHTML = state.products.map(function (product) {
+      var stats = productRevenueStats(product);
       return '<article class="list-card">' +
-        '<div><div class="list-title">' + escapeHtml(customer.name) + '</div><div class="list-meta">' + escapeHtml(customer.memo || "") + '</div></div>' +
-        '<div><strong>' + escapeHtml(customer.phone || "-") + '</strong><div class="list-meta">電話</div></div>' +
-        '<div class="list-meta">' + escapeHtml(customer.address || "-") + '</div>' +
-        '<div></div>' +
-        renderActions("customers", customer.id) +
+        '<div><div class="list-title">' + escapeHtml(productFullLabel(product)) + '</div><div class="list-meta">' + (stats.recovered ? '原価回収済み' : '未回収') + '</div></div>' +
+        '<div><strong>' + yen(product.cost) + '</strong><div class="list-meta">原価額</div></div>' +
+        '<div><strong>' + yen(stats.cumulative) + '</strong><div class="list-meta">累計レンタル売上</div></div>' +
+        '<div><strong>' + stats.rate + '%</strong><div class="list-meta">原価回収率</div></div>' +
+        '<div><strong>' + yen(stats.profit) + '</strong><div class="list-meta">利益目安</div></div>' +
         '</article>';
-    }).join("") || renderEmpty("顧客を登録してください。");
+    }).join("") || renderEmpty("商品がありません。");
   }
 
   function renderDealers() {
@@ -305,8 +516,8 @@ console.log("Rental app script loaded");
       return '<article class="list-card">' +
         '<div><div class="list-title">' + escapeHtml(dealer.name) + '</div><div class="list-meta">' + escapeHtml(dealer.memo || "") + '</div></div>' +
         '<div><strong>' + escapeHtml(dealer.contact || "-") + '</strong><div class="list-meta">担当者</div></div>' +
-        '<div><strong>' + escapeHtml(dealer.phone || "-") + '</strong><div class="list-meta">電話</div></div>' +
-        '<div></div>' +
+        '<div><strong>' + escapeHtml(dealer.phone || "-") + '</strong><div class="list-meta">電話番号</div></div>' +
+        '<div><strong>' + escapeHtml(dealer.address || "-") + '</strong><div class="list-meta">住所</div></div>' +
         renderActions("dealers", dealer.id) +
         '</article>';
     }).join("") || renderEmpty("販売店を登録してください。");
@@ -315,13 +526,15 @@ console.log("Rental app script loaded");
   function renderContracts() {
     getInput("contractList").innerHTML = state.contracts.map(function (contract) {
       var product = byId("products", contract.productId);
-      var customer = byId("customers", contract.customerId);
-      var dealer = byId("dealers", contract.dealerId);
+      var dealer = dealerForContract(contract);
+      var planned = contractPlannedRevenue(contract);
+      var invoice = contractInvoiceDetail(contract);
       return '<article class="list-card two-actions">' +
-        '<div><div class="list-title">' + escapeHtml(product ? product.name : "商品未設定") + '</div><div class="list-meta">' + escapeHtml(customer ? customer.name : "顧客未設定") + ' / ' + escapeHtml(dealer ? dealer.name : "販売店未設定") + '</div></div>' +
+        '<div><div class="list-title">' + escapeHtml(product ? productFullLabel(product) : "商品未設定") + '</div><div class="list-meta">' + escapeHtml(dealer ? dealer.name : "販売店未設定") + ' / 担当者：' + escapeHtml(dealer && dealer.contact ? dealer.contact : "未設定") + '</div></div>' +
         '<div><strong>' + formatDate(contract.startDate) + '</strong><div class="list-meta">開始日</div></div>' +
         '<div><strong>' + formatDate(contract.plannedEndDate) + '</strong><div class="list-meta">終了予定</div></div>' +
-        '<div><strong>' + Number(contract.quantity || 1) + '台</strong><div class="list-meta">' + yen(contractMonthlyRevenue(contract)) + '</div></div>' +
+        '<div><strong>' + escapeHtml(dealer && dealer.phone ? dealer.phone : "-") + '</strong><div class="list-meta">担当者電話番号</div></div>' +
+        '<div><strong>' + yen(invoice.invoice) + '</strong><div class="list-meta">請求額 / 予定 ' + yen(planned) + '</div></div>' +
         '<div><span class="' + statusClass(contract.status) + '">' + escapeHtml(contract.status) + '</span></div>' +
         renderActions("contracts", contract.id) +
         '</article>';
@@ -330,20 +543,29 @@ console.log("Rental app script loaded");
 
   function renderBilling() {
     var rows = state.contracts.filter(isActiveContract);
-    var monthly = rows.reduce(function (sum, contract) {
-      return sum + contractMonthlyRevenue(contract);
+    var planned = rows.reduce(function (sum, contract) {
+      return sum + contractPlannedRevenue(contract);
     }, 0);
-    getInput("billingSummary").textContent = "月額売上見込み " + yen(monthly) + " / 年間 " + yen(monthly * 12);
+    var invoiceTotal = rows.reduce(function (sum, contract) {
+      return sum + contractInvoiceDetail(contract).invoice;
+    }, 0);
+    getInput("billingSummary").textContent = "今月の請求予定額 " + yen(invoiceTotal) + " / 予定総額 " + yen(planned);
     getInput("billingList").innerHTML = rows.map(function (contract) {
       var product = byId("products", contract.productId);
-      var customer = byId("customers", contract.customerId);
-      var dealer = byId("dealers", contract.dealerId);
+      var dealer = dealerForContract(contract);
+      var plannedRevenue = contractPlannedRevenue(contract);
+      var invoice = contractInvoiceDetail(contract);
       return '<article class="list-card">' +
-        '<div><div class="list-title">' + escapeHtml(customer ? customer.name : "-") + '</div><div class="list-meta">' + escapeHtml(dealer ? dealer.name : "-") + '</div></div>' +
-        '<div><strong>' + escapeHtml(product ? product.name : "-") + '</strong><div class="list-meta">商品</div></div>' +
-        '<div><strong>' + Number(contract.quantity || 1) + '台</strong><div class="list-meta">台数</div></div>' +
-        '<div><strong>' + yen(contractMonthlyRevenue(contract)) + '</strong><div class="list-meta">月額</div></div>' +
+        '<div><div class="list-title">今月の請求予定額：' + yen(invoice.invoice) + '</div><div class="list-meta">請求先：' + escapeHtml(dealer ? dealer.name : "-") + ' / 販売店名：' + escapeHtml(dealer ? dealer.name : "-") + '</div></div>' +
+        '<div><strong>' + escapeHtml(dealer && dealer.contact ? dealer.contact : "-") + '</strong><div class="list-meta">担当者 / ' + escapeHtml(dealer && dealer.phone ? dealer.phone : "-") + '</div></div>' +
+        '<div><strong>' + escapeHtml(product ? productLabel(product) : "-") + '</strong><div class="list-meta">商品名 / 品番：' + escapeHtml(product && product.serial ? product.serial : "-") + '</div></div>' +
+        '<div><strong>' + escapeHtml(billingMonthLabel(invoice.targetMonth)) + '</strong><div class="list-meta">請求対象月</div></div>' +
+        '<div><strong>' + formatDate(contract.startDate) + '</strong><div class="list-meta">開始日</div></div>' +
+        '<div><strong>' + formatDate(contract.plannedEndDate) + '</strong><div class="list-meta">終了予定日</div></div>' +
+        '<div><strong>' + (invoice.isProrated ? 'あり' : 'なし') + '</strong><div class="list-meta">日割り / 月額参考 ' + yen(invoice.monthly) + '</div></div>' +
+        '<div><strong>' + yen(plannedRevenue) + '</strong><div class="list-meta">予定総額</div></div>' +
         '<div><span class="' + statusClass(contract.status) + '">' + escapeHtml(contract.status) + '</span></div>' +
+        '<div class="list-meta">' + escapeHtml(contract.memo || "") + '</div>' +
         '</article>';
     }).join("") || renderEmpty("請求対象の契約がありません。");
   }
@@ -376,9 +598,9 @@ console.log("Rental app script loaded");
     }
     return rows.map(function (contract) {
       var product = byId("products", contract.productId);
-      var customer = byId("customers", contract.customerId);
+      var dealer = dealerForContract(contract);
       return '<article class="list-card">' +
-        '<div><div class="list-title">' + escapeHtml(customer ? customer.name : "-") + '</div><div class="list-meta">' + escapeHtml(product ? product.name : "-") + '</div></div>' +
+        '<div><div class="list-title">' + escapeHtml(dealer ? dealer.name : "-") + '</div><div class="list-meta">担当者：' + escapeHtml(dealer && dealer.contact ? dealer.contact : "-") + ' / ' + escapeHtml(product ? productFullLabel(product) : "-") + '</div></div>' +
         '<div><strong>' + formatDate(contract.plannedEndDate) + '</strong><div class="list-meta">終了予定</div></div>' +
         '<div><strong>' + formatDate(contract.returnDate) + '</strong><div class="list-meta">返却日</div></div>' +
         '<div><span class="' + statusClass(contract.status) + '">' + escapeHtml(contract.status) + '</span></div>' +
@@ -388,15 +610,29 @@ console.log("Rental app script loaded");
   }
 
   function renderSelects() {
+    fillProductCatalogSelect();
     fillSelect("contractProduct", state.products, "商品を選択", function (item) {
-      return item.name + " / " + yen(item.price);
-    });
-    fillSelect("contractCustomer", state.customers, "顧客を選択", function (item) {
-      return item.name;
+      return productFullLabel(item) + " / " + yen(item.price);
     });
     fillSelect("contractDealer", state.dealers, "販売店を選択", function (item) {
       return item.name;
     });
+    updateContractDealerFields();
+  }
+
+  function fillProductCatalogSelect() {
+    var select = getInput("productName");
+    if (!select) {
+      return;
+    }
+    var current = select.value;
+    select.innerHTML = '<option value="">商品名／カテゴリを選択</option>' + PRODUCT_CATALOG.map(function (product) {
+      var value = productCatalogValue(product);
+      return '<option value="' + escapeHtml(value) + '">' + escapeHtml(productLabel(product)) + '</option>';
+    }).join("");
+    select.value = PRODUCT_CATALOG.some(function (product) {
+      return productCatalogValue(product) === current;
+    }) ? current : "";
   }
 
   function fillSelect(id, items, placeholder, labeler) {
@@ -411,11 +647,16 @@ console.log("Rental app script loaded");
     select.value = items.some(function (item) { return item.id === current; }) ? current : "";
   }
 
+  function updateContractDealerFields() {
+    var dealer = byId("dealers", getInput("contractDealer") ? getInput("contractDealer").value : "");
+    setValue("contractContact", dealer && dealer.contact ? dealer.contact : "");
+    setValue("contractContactPhone", dealer && dealer.phone ? dealer.phone : "");
+  }
+
   function renderAll() {
     renderSelects();
     renderDashboard();
     renderProducts();
-    renderCustomers();
     renderDealers();
     renderContracts();
     renderBilling();
@@ -455,9 +696,6 @@ console.log("Rental app script loaded");
     if (collection === "products") {
       state.contracts = state.contracts.filter(function (contract) { return contract.productId !== id; });
     }
-    if (collection === "customers") {
-      state.contracts = state.contracts.filter(function (contract) { return contract.customerId !== id; });
-    }
     if (collection === "dealers") {
       state.contracts = state.contracts.filter(function (contract) { return contract.dealerId !== id; });
     }
@@ -472,33 +710,27 @@ console.log("Rental app script loaded");
     }
     if (collection === "products") {
       setValue("productId", item.id);
-      setValue("productName", item.name);
-      setValue("productCategory", item.category);
+      setValue("productSerial", item.serial);
+      setValue("productName", productCatalogValue(item));
       setValue("productPrice", item.price);
+      setValue("productCost", item.cost);
       setValue("productStock", item.stock);
       safeShowTab("products");
-    }
-    if (collection === "customers") {
-      setValue("customerId", item.id);
-      setValue("customerName", item.name);
-      setValue("customerPhone", item.phone);
-      setValue("customerAddress", item.address);
-      setValue("customerMemo", item.memo);
-      safeShowTab("customers");
     }
     if (collection === "dealers") {
       setValue("dealerId", item.id);
       setValue("dealerName", item.name);
       setValue("dealerContact", item.contact);
       setValue("dealerPhone", item.phone);
+      setValue("dealerAddress", item.address);
       setValue("dealerMemo", item.memo);
       safeShowTab("dealers");
     }
     if (collection === "contracts") {
       setValue("contractId", item.id);
       setValue("contractProduct", item.productId);
-      setValue("contractCustomer", item.customerId);
       setValue("contractDealer", item.dealerId);
+      updateContractDealerFields();
       setValue("contractStart", item.startDate);
       setValue("contractEndPlan", item.plannedEndDate);
       setValue("contractReturn", item.returnDate);
@@ -519,26 +751,17 @@ console.log("Rental app script loaded");
   function bindForms() {
     getInput("productForm").addEventListener("submit", function (event) {
       event.preventDefault();
+      var selectedProduct = parseProductSelection(getInput("productName").value);
       upsert("products", {
         id: getInput("productId").value || createId(),
-        name: getInput("productName").value.trim(),
-        category: getInput("productCategory").value.trim(),
+        serial: getInput("productSerial").value.trim(),
+        name: selectedProduct.name,
+        category: selectedProduct.category,
         price: Number(getInput("productPrice").value || 0),
+        cost: Number(getInput("productCost").value || 0),
         stock: Number(getInput("productStock").value || 0)
       });
       resetForm("productForm");
-    });
-
-    getInput("customerForm").addEventListener("submit", function (event) {
-      event.preventDefault();
-      upsert("customers", {
-        id: getInput("customerId").value || createId(),
-        name: getInput("customerName").value.trim(),
-        phone: getInput("customerPhone").value.trim(),
-        address: getInput("customerAddress").value.trim(),
-        memo: getInput("customerMemo").value.trim()
-      });
-      resetForm("customerForm");
     });
 
     getInput("dealerForm").addEventListener("submit", function (event) {
@@ -548,6 +771,7 @@ console.log("Rental app script loaded");
         name: getInput("dealerName").value.trim(),
         contact: getInput("dealerContact").value.trim(),
         phone: getInput("dealerPhone").value.trim(),
+        address: getInput("dealerAddress").value.trim(),
         memo: getInput("dealerMemo").value.trim()
       });
       resetForm("dealerForm");
@@ -558,7 +782,6 @@ console.log("Rental app script loaded");
       upsert("contracts", {
         id: getInput("contractId").value || createId(),
         productId: getInput("contractProduct").value,
-        customerId: getInput("contractCustomer").value,
         dealerId: getInput("contractDealer").value,
         startDate: getInput("contractStart").value,
         plannedEndDate: getInput("contractEndPlan").value,
@@ -575,7 +798,6 @@ console.log("Rental app script loaded");
   function bindButtons() {
     [
       ["clearProductForm", "productForm"],
-      ["clearCustomerForm", "customerForm"],
       ["clearDealerForm", "dealerForm"],
       ["clearContractForm", "contractForm"]
     ].forEach(function (pair) {
@@ -615,6 +837,8 @@ console.log("Rental app script loaded");
       state = loadState();
       renderAll();
     });
+
+    getInput("contractDealer").addEventListener("change", updateContractDealerFields);
   }
 
   function exportCsv(type) {
@@ -626,7 +850,7 @@ console.log("Rental app script loaded");
     var url = URL.createObjectURL(blob);
     var link = document.createElement("a");
     link.href = url;
-    link.download = "rental-" + type + "-" + todayIso() + ".csv";
+    link.download = (type === "billing" ? "invoice" : "rental-" + type) + "-" + todayIso() + ".csv";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -640,41 +864,42 @@ console.log("Rental app script loaded");
 
   function buildCsvRows(type) {
     if (type === "products") {
-      return [["商品名", "カテゴリ", "月額", "保有台数", "貸出中", "空き"]].concat(state.products.map(function (product) {
+      return [["品番", "商品名／カテゴリ", "月額", "原価額", "保有台数", "貸出中", "空き", "累計レンタル売上", "原価回収率", "原価回収状態", "利益目安"]].concat(state.products.map(function (product) {
         var rented = productRentedQuantity(product.id);
-        return [product.name, product.category, product.price, product.stock, rented, Math.max(Number(product.stock || 0) - rented, 0)];
-      }));
-    }
-    if (type === "customers") {
-      return [["顧客名", "電話番号", "住所", "メモ"]].concat(state.customers.map(function (customer) {
-        return [customer.name, customer.phone, customer.address, customer.memo];
+        var stats = productRevenueStats(product);
+        return [product.serial, productLabel(product), product.price, product.cost, product.stock, rented, Math.max(Number(product.stock || 0) - rented, 0), stats.cumulative, stats.rate + "%", stats.recovered ? "原価回収済み" : "未回収", stats.profit];
       }));
     }
     if (type === "dealers") {
-      return [["販売店名", "担当者", "電話番号", "メモ"]].concat(state.dealers.map(function (dealer) {
-        return [dealer.name, dealer.contact, dealer.phone, dealer.memo];
+      return [["販売店名", "担当者", "電話番号", "住所", "メモ"]].concat(state.dealers.map(function (dealer) {
+        return [dealer.name, dealer.contact, dealer.phone, dealer.address, dealer.memo];
       }));
     }
     if (type === "contracts" || type === "billing") {
-      return [["商品", "顧客", "販売店", "開始日", "終了予定日", "返却日", "台数", "ステータス", "月額", "メモ"]].concat(state.contracts.map(function (contract) {
+      return [["請求先", "販売店名", "担当者", "担当者電話番号", "商品名", "品番", "請求対象月", "開始日", "終了予定日", "日割り有無", "今月の請求予定額", "予定総額", "ステータス", "メモ", "月額金額（参考）"]].concat(state.contracts.map(function (contract) {
         var product = byId("products", contract.productId);
-        var customer = byId("customers", contract.customerId);
-        var dealer = byId("dealers", contract.dealerId);
+        var dealer = dealerForContract(contract);
+        var invoice = contractInvoiceDetail(contract);
         return [
-          product ? product.name : "",
-          customer ? customer.name : "",
           dealer ? dealer.name : "",
+          dealer ? dealer.name : "",
+          dealer ? dealer.contact : "",
+          dealer ? dealer.phone : "",
+          product ? productLabel(product) : "",
+          product ? product.serial : "",
+          billingMonthLabel(invoice.targetMonth),
           contract.startDate,
           contract.plannedEndDate,
-          contract.returnDate,
-          contract.quantity,
+          invoice.isProrated ? "あり" : "なし",
+          invoice.invoice,
+          contractPlannedRevenue(contract),
           contract.status,
-          contractMonthlyRevenue(contract),
-          contract.memo
+          contract.memo,
+          invoice.monthly
         ];
       }));
     }
-    return [["種別", "件数"], ["商品", state.products.length], ["顧客", state.customers.length], ["販売店", state.dealers.length], ["契約", state.contracts.length]];
+    return [["種別", "件数"], ["商品", state.products.length], ["販売店", state.dealers.length], ["契約", state.contracts.length]];
   }
 
   function ready(fn) {
