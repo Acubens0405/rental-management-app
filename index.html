@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>自社レンタル管理アプリ</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    .tab-bar{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .tab-button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 14px;border:1px solid #d9e5ea;border-radius:8px;background:#fff;color:#1c2b33;font-weight:700;text-decoration:none;white-space:nowrap;touch-action:manipulation}
+    .tab-button.active,.tab-button[aria-selected=true]{background:#0f766e;color:#fff;border-color:#0f766e}
+    .tab-panel[hidden]{display:none}
+    .tab-panel:target{display:block!important}
+    .app-shell:has(.tab-panel:target) #dashboard:not(:target){display:none!important}
+  </style>
 </head>
 <body>
   <header class="app-header">
@@ -20,13 +28,13 @@
   </header>
 
   <nav class="tab-bar" aria-label="主要画面">
-    <button class="tab-button active" type="button" data-tab-target="dashboard" aria-controls="dashboard" aria-selected="true">ダッシュボード</button>
-    <button class="tab-button" type="button" data-tab-target="products" aria-controls="products" aria-selected="false">商品管理</button>
-    <button class="tab-button" type="button" data-tab-target="customers" aria-controls="customers" aria-selected="false">顧客管理</button>
-    <button class="tab-button" type="button" data-tab-target="dealers" aria-controls="dealers" aria-selected="false">販売店管理</button>
-    <button class="tab-button" type="button" data-tab-target="contracts" aria-controls="contracts" aria-selected="false">契約管理</button>
-    <button class="tab-button" type="button" data-tab-target="billing" aria-controls="billing" aria-selected="false">請求・売上</button>
-    <button class="tab-button" type="button" data-tab-target="schedule" aria-controls="schedule" aria-selected="false">返却・点検</button>
+    <a class="tab-button active" href="#dashboard" data-tab-target="dashboard" aria-controls="dashboard" aria-selected="true">ダッシュボード</a>
+    <a class="tab-button" href="#products" data-tab-target="products" aria-controls="products" aria-selected="false">商品管理</a>
+    <a class="tab-button" href="#customers" data-tab-target="customers" aria-controls="customers" aria-selected="false">顧客管理</a>
+    <a class="tab-button" href="#dealers" data-tab-target="dealers" aria-controls="dealers" aria-selected="false">販売店管理</a>
+    <a class="tab-button" href="#contracts" data-tab-target="contracts" aria-controls="contracts" aria-selected="false">契約管理</a>
+    <a class="tab-button" href="#billing" data-tab-target="billing" aria-controls="billing" aria-selected="false">請求・売上</a>
+    <a class="tab-button" href="#schedule" data-tab-target="schedule" aria-controls="schedule" aria-selected="false">返却・点検</a>
   </nav>
 
   <main class="app-shell">
@@ -197,5 +205,47 @@
   </footer>
 
   <script src="script.js" defer></script>
+  <script>
+    (function () {
+      function initSafeTabs() {
+        try {
+          var buttons = Array.prototype.slice.call(document.querySelectorAll("[data-tab-target]"));
+          var panels = Array.prototype.slice.call(document.querySelectorAll("[data-tab-panel]"));
+          if (!buttons.length || !panels.length) return;
+          function showTab(id) {
+            panels.forEach(function (panel) { panel.hidden = panel.id !== id; });
+            buttons.forEach(function (button) {
+              var active = button.getAttribute("data-tab-target") === id;
+              button.classList.toggle("active", active);
+              button.setAttribute("aria-selected", active ? "true" : "false");
+            });
+          }
+          window.rentalAppShowTab = showTab;
+          buttons.forEach(function (button) {
+            ["click", "touchend", "pointerup"].forEach(function (name) {
+              button.addEventListener(name, function (event) {
+                var id = button.getAttribute("data-tab-target");
+                if (!id) return;
+                event.preventDefault();
+                if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
+                showTab(id);
+              }, { passive: false });
+            });
+          });
+          showTab((location.hash || "#dashboard").replace("#", ""));
+          window.addEventListener("hashchange", function () {
+            showTab((location.hash || "#dashboard").replace("#", ""));
+          });
+        } catch (error) {
+          console.error("Inline tab fallback failed", error);
+        }
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initSafeTabs, { once: true });
+      } else {
+        initSafeTabs();
+      }
+    })();
+  </script>
 </body>
 </html>
