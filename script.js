@@ -919,13 +919,21 @@ console.log("Rental app script loaded");
   }
 
   function renderAll() {
-    renderSelects();
-    renderDashboard();
-    renderProducts();
-    renderDealers();
-    renderContracts();
-    renderBilling();
-    renderSchedule();
+    [
+      renderSelects,
+      renderDashboard,
+      renderProducts,
+      renderDealers,
+      renderContracts,
+      renderBilling,
+      renderSchedule
+    ].forEach(function (renderPart) {
+      try {
+        renderPart();
+      } catch (error) {
+        console.error("Render failed", renderPart.name, error);
+      }
+    });
   }
 
   function resetForm(formId) {
