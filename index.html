@@ -82,6 +82,7 @@
         </div>
       </div>
       <form class="form-card" id="productForm">
+        <div class="edit-notice full-span" id="productEditNotice" hidden></div>
         <input type="hidden" id="productId">
         <label>品番<input id="productSerial" type="text" placeholder="例：see01-000001"></label>
         <label>商品名／カテゴリ<select id="productName" required></select></label>
@@ -89,7 +90,7 @@
         <label>原価額<input id="productCost" type="number" min="0" step="1000" placeholder="例：80000"></label>
         <label>保有台数<input id="productStock" type="number" min="0" step="1" required></label>
         <div class="form-actions">
-          <button class="primary-button" type="submit">保存</button>
+          <button class="primary-button" id="productSubmitButton" type="submit">保存</button>
           <button class="secondary-button" id="clearProductForm" type="button">入力クリア</button>
         </div>
       </form>

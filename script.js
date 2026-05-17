@@ -936,6 +936,26 @@ console.log("Rental app script loaded");
         input.value = "";
       });
     }
+    if (formId === "productForm") {
+      setProductEditMode(null);
+    }
+  }
+
+  function setProductEditMode(product) {
+    var notice = getInput("productEditNotice");
+    var button = getInput("productSubmitButton");
+    if (notice) {
+      if (product) {
+        notice.hidden = false;
+        notice.textContent = "編集中：" + productFullLabel(product) + "。内容を変更して「更新保存」を押してください。";
+      } else {
+        notice.hidden = true;
+        notice.textContent = "";
+      }
+    }
+    if (button) {
+      button.textContent = product ? "更新保存" : "保存";
+    }
   }
 
   function upsert(collection, item) {
@@ -991,6 +1011,7 @@ console.log("Rental app script loaded");
       setValue("productPrice", item.price);
       setValue("productCost", item.cost);
       setValue("productStock", item.stock);
+      setProductEditMode(item);
       safeShowTab("products");
     }
     if (collection === "dealers") {

@@ -287,6 +287,15 @@ h3 {
   box-shadow: 0 0 0 6px rgba(20, 130, 110, 0.12), var(--shadow);
 }
 
+.edit-notice {
+  padding: 12px 14px;
+  border: 1px solid rgba(20, 130, 110, 0.35);
+  border-radius: 8px;
+  background: #e9f7f3;
+  color: #0f5f52;
+  font-weight: 800;
+}
+
 .form-card.wide {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
