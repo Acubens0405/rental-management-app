@@ -978,10 +978,12 @@ console.log("Rental app script loaded");
 
   function editItem(collection, id) {
     var item = byId(collection, id);
+    var targetFormId = "";
     if (!item) {
       return;
     }
     if (collection === "products") {
+      targetFormId = "productForm";
       setValue("productId", item.id);
       setValue("productSerial", item.serial);
       ensureProductCatalogOption(item);
@@ -992,6 +994,7 @@ console.log("Rental app script loaded");
       safeShowTab("products");
     }
     if (collection === "dealers") {
+      targetFormId = "dealerForm";
       setValue("dealerId", item.id);
       setValue("dealerName", item.name);
       setValue("dealerContact", item.contact);
@@ -1001,6 +1004,7 @@ console.log("Rental app script loaded");
       safeShowTab("dealers");
     }
     if (collection === "contracts") {
+      targetFormId = "contractForm";
       setValue("contractId", item.id);
       setValue("contractProduct", item.productId);
       setValue("contractDealer", item.dealerId);
@@ -1013,13 +1017,26 @@ console.log("Rental app script loaded");
       setValue("contractMemo", item.memo);
       safeShowTab("contracts");
     }
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollToEditForm(targetFormId);
   }
 
   function safeShowTab(id) {
     if (typeof window.rentalAppShowTab === "function") {
       window.rentalAppShowTab(id);
     }
+  }
+
+  function scrollToEditForm(formId) {
+    var form = getInput(formId);
+    if (!form) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    form.classList.add("editing-form");
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(function () {
+      form.classList.remove("editing-form");
+    }, 1800);
   }
 
   function bindForms() {

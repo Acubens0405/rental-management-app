@@ -282,6 +282,11 @@ h3 {
   padding: 18px;
 }
 
+.form-card.editing-form {
+  outline: 3px solid rgba(20, 130, 110, 0.35);
+  box-shadow: 0 0 0 6px rgba(20, 130, 110, 0.12), var(--shadow);
+}
+
 .form-card.wide {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
