@@ -80,6 +80,8 @@ console.log("Rental app script loaded");
   "use strict";
 
   var STORAGE_KEY = "welfareRentalMvp.v1";
+  var BACKUP_KEY = "welfareRentalMvp.backups.v1";
+  var MAX_BACKUPS = 10;
   var SUPABASE_CONFIG_KEY = "welfareRentalSupabase.v1";
   var SUPABASE_PROJECT_URL = "https://fdsrgfxvjtqlbcisgdxu.supabase.co";
   var SUPABASE_ANON_KEY = "sb_publishable_LCZ7zuoMtS9UMFQHWxONPQ_fUeRFaSW";
@@ -364,6 +366,59 @@ console.log("Rental app script loaded");
     }
   }
 
+  function readBackups() {
+    try {
+      var backups = JSON.parse(localStorage.getItem(BACKUP_KEY) || "[]");
+      return Array.isArray(backups) ? backups : [];
+    } catch (error) {
+      console.error("Failed to read backups", error);
+      return [];
+    }
+  }
+
+  function backupState(reason) {
+    try {
+      var hasData = state.products.length || state.dealers.length || state.contracts.length;
+      if (!hasData) {
+        return;
+      }
+      var backups = readBackups();
+      backups.unshift({
+        reason: reason || "自動バックアップ",
+        createdAt: new Date().toISOString(),
+        data: JSON.parse(JSON.stringify(state))
+      });
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_BACKUPS)));
+    } catch (error) {
+      console.error("Failed to create backup", error);
+    }
+  }
+
+  function restoreLatestBackup() {
+    var backups = readBackups();
+    if (!backups.length) {
+      alert("この端末に復元できるバックアップがありません。");
+      return;
+    }
+    var backup = backups[0];
+    var label = backup.createdAt ? new Date(backup.createdAt).toLocaleString("ja-JP") : "日時不明";
+    if (!confirm("端末バックアップを復元しますか？\n作成日時：" + label + "\n理由：" + (backup.reason || "自動バックアップ"))) {
+      return;
+    }
+    state = {
+      products: (backup.data.products || []).map(normalizeProduct),
+      dealers: (backup.data.dealers || []).map(normalizeDealer),
+      contracts: (backup.data.contracts || []).map(normalizeContract)
+    };
+    hydrateContractMonthlyPrices();
+    saveState();
+    renderAll();
+    if (cloudEnabled) {
+      syncLocalToCloud();
+    }
+    setCloudStatus("端末バックアップを復元しました。必要に応じてクラウドへ反映します。");
+  }
+
   function hydrateContractMonthlyPrices() {
     state.contracts = state.contracts.map(function (contract) {
       if (!Number(contract.monthlyPrice || 0)) {
@@ -445,12 +500,19 @@ console.log("Rental app script loaded");
       throw productsResult.error || dealersResult.error || contractsResult.error;
     }
     var cloudProducts = (productsResult.data || []).map(rowToProduct);
+    var cloudDealers = (dealersResult.data || []).map(rowToDealer);
+    var cloudContracts = (contractsResult.data || []).map(rowToContract);
+    var keepLocalContracts = !cloudContracts.length && state.contracts.length;
+    backupState("クラウド読込前");
     state = {
       products: cloudProducts.length ? cloudProducts : state.products,
-      dealers: (dealersResult.data || []).map(rowToDealer),
-      contracts: (contractsResult.data || []).map(rowToContract)
+      dealers: cloudDealers.length ? cloudDealers : state.dealers,
+      contracts: keepLocalContracts ? state.contracts : cloudContracts
     };
     hydrateContractMonthlyPrices();
+    if (keepLocalContracts) {
+      setCloudStatus("注意：クラウド契約データが空のため、この端末の契約データを保持しています。必要なら「現在データをクラウドへ送信」を押してください。");
+    }
     if (!cloudProducts.length) {
       await syncLocalToCloud();
     }
@@ -1019,6 +1081,7 @@ console.log("Rental app script loaded");
     if (!confirm("このデータを削除しますか？")) {
       return;
     }
+    backupState("削除前");
     state[collection] = state[collection].filter(function (item) {
       return item.id !== id;
     });
@@ -1189,6 +1252,7 @@ console.log("Rental app script loaded");
       if (!confirm("保存済みデータを初期デモ状態に戻しますか？")) {
         return;
       }
+      backupState("デモ初期化前");
       localStorage.removeItem(STORAGE_KEY);
       state = loadState();
       saveState();
@@ -1224,6 +1288,7 @@ console.log("Rental app script loaded");
       await initCloudStorage();
     });
     getInput("syncLocalToCloud").addEventListener("click", syncLocalToCloud);
+    getInput("restoreLocalBackup").addEventListener("click", restoreLatestBackup);
     getInput("clearCloudSettings").addEventListener("click", function () {
       clearCloudConfig();
       cloudEnabled = false;
