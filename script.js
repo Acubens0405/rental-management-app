@@ -883,6 +883,23 @@ console.log("Rental app script loaded");
     }) ? current : "";
   }
 
+  function ensureProductCatalogOption(product) {
+    var select = getInput("productName");
+    if (!select || !product) {
+      return;
+    }
+    var value = productCatalogValue(product);
+    var exists = Array.prototype.slice.call(select.options).some(function (option) {
+      return option.value === value;
+    });
+    if (!exists && value !== "||") {
+      var option = document.createElement("option");
+      option.value = value;
+      option.textContent = productLabel(product);
+      select.appendChild(option);
+    }
+  }
+
   function fillSelect(id, items, placeholder, labeler) {
     var select = getInput(id);
     if (!select) {
@@ -967,6 +984,7 @@ console.log("Rental app script loaded");
     if (collection === "products") {
       setValue("productId", item.id);
       setValue("productSerial", item.serial);
+      ensureProductCatalogOption(item);
       setValue("productName", productCatalogValue(item));
       setValue("productPrice", item.price);
       setValue("productCost", item.cost);
