@@ -114,6 +114,7 @@ console.log("Rental app script loaded");
   });
 
   var state = loadState();
+  hydrateContractMonthlyPrices();
 
   function createId() {
     return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
@@ -265,6 +266,7 @@ console.log("Rental app script loaded");
       id: contract.id || createId(),
       productId: contract.productId || "",
       dealerId: contract.dealerId || "",
+      monthlyPrice: Number(contract.monthlyPrice || contract.monthly_price || 0),
       startDate: contract.startDate || "",
       plannedEndDate: contract.plannedEndDate || "",
       returnDate: contract.returnDate || "",
@@ -304,6 +306,7 @@ console.log("Rental app script loaded");
       id: contract.id,
       product_id: contract.productId,
       dealer_id: contract.dealerId,
+      monthly_price: Number(contract.monthlyPrice || 0),
       start_date: contract.startDate || null,
       planned_end_date: contract.plannedEndDate || null,
       return_date: contract.returnDate || null,
@@ -342,6 +345,7 @@ console.log("Rental app script loaded");
       id: row.id,
       productId: row.product_id,
       dealerId: row.dealer_id,
+      monthlyPrice: row.monthly_price,
       startDate: row.start_date,
       plannedEndDate: row.planned_end_date,
       returnDate: row.return_date,
@@ -358,6 +362,18 @@ console.log("Rental app script loaded");
       console.error("Failed to save localStorage data", error);
       alert("ブラウザ保存に失敗しました。空き容量やプライベートモードをご確認ください。");
     }
+  }
+
+  function hydrateContractMonthlyPrices() {
+    state.contracts = state.contracts.map(function (contract) {
+      if (!Number(contract.monthlyPrice || 0)) {
+        var product = state.products.find(function (item) {
+          return item.id === contract.productId;
+        });
+        contract.monthlyPrice = product ? Number(product.price || 0) : 0;
+      }
+      return contract;
+    });
   }
 
   function loadCloudConfig() {
@@ -434,6 +450,7 @@ console.log("Rental app script loaded");
       dealers: (dealersResult.data || []).map(rowToDealer),
       contracts: (contractsResult.data || []).map(rowToContract)
     };
+    hydrateContractMonthlyPrices();
     if (!cloudProducts.length) {
       await syncLocalToCloud();
     }
@@ -561,16 +578,22 @@ console.log("Rental app script loaded");
   }
 
   function contractMonthlyRevenue(contract) {
-    var product = byId("products", contract.productId);
-    if (!product || !isActiveContract(contract)) {
+    if (!isActiveContract(contract)) {
       return 0;
     }
-    return Number(product.price || 0) * Number(contract.quantity || 1);
+    return monthlyAmount(contract);
   }
 
   function monthlyAmount(contract) {
+    return contractMonthlyUnitPrice(contract) * Number(contract.quantity || 1);
+  }
+
+  function contractMonthlyUnitPrice(contract) {
+    if (Number(contract.monthlyPrice || 0)) {
+      return Number(contract.monthlyPrice || 0);
+    }
     var product = byId("products", contract.productId);
-    return product ? Number(product.price || 0) * Number(contract.quantity || 1) : 0;
+    return product ? Number(product.price || 0) : 0;
   }
 
   function proratedAmountForRange(contract, rangeStart, rangeEnd) {
@@ -604,19 +627,18 @@ console.log("Rental app script loaded");
   }
 
   function contractInvoiceDetail(contract) {
-    var product = byId("products", contract.productId);
     var start = parseIsoDate(contract.startDate);
     var end = parseIsoDate(contract.plannedEndDate);
     var targetStart = startOfMonth(new Date());
     var targetEnd = endOfMonth(targetStart);
     var detail = {
       targetMonth: currentBillingMonth(),
-      monthly: product ? Number(product.price || 0) * Number(contract.quantity || 1) : 0,
+      monthly: monthlyAmount(contract),
       daily: 0,
       invoice: 0,
       isProrated: false
     };
-    if (!product || !start || !end || end < targetStart || start > targetEnd || !isActiveContract(contract)) {
+    if (!detail.monthly || !start || !end || end < targetStart || start > targetEnd || !isActiveContract(contract)) {
       return detail;
     }
     var usageStart = start > targetStart ? start : targetStart;
@@ -779,6 +801,7 @@ console.log("Rental app script loaded");
       var invoice = contractInvoiceDetail(contract);
       return '<article class="list-card two-actions">' +
         '<div><div class="list-title">' + escapeHtml(product ? productFullLabel(product) : "商品未設定") + '</div><div class="list-meta">' + escapeHtml(dealer ? dealer.name : "販売店未設定") + ' / 担当者：' + escapeHtml(dealer && dealer.contact ? dealer.contact : "未設定") + '</div></div>' +
+        '<div><strong>' + yen(contractMonthlyUnitPrice(contract)) + '</strong><div class="list-meta">契約月額単価</div></div>' +
         '<div><strong>' + formatDate(contract.startDate) + '</strong><div class="list-meta">開始日</div></div>' +
         '<div><strong>' + formatDate(contract.plannedEndDate) + '</strong><div class="list-meta">終了予定</div></div>' +
         '<div><strong>' + escapeHtml(dealer && dealer.phone ? dealer.phone : "-") + '</strong><div class="list-meta">担当者電話番号</div></div>' +
@@ -810,7 +833,7 @@ console.log("Rental app script loaded");
         '<div><strong>' + escapeHtml(billingMonthLabel(invoice.targetMonth)) + '</strong><div class="list-meta">請求対象月</div></div>' +
         '<div><strong>' + formatDate(contract.startDate) + '</strong><div class="list-meta">開始日</div></div>' +
         '<div><strong>' + formatDate(contract.plannedEndDate) + '</strong><div class="list-meta">終了予定日</div></div>' +
-        '<div><strong>' + (invoice.isProrated ? 'あり' : 'なし') + '</strong><div class="list-meta">日割り / 月額参考 ' + yen(invoice.monthly) + '</div></div>' +
+        '<div><strong>' + (invoice.isProrated ? 'あり' : 'なし') + '</strong><div class="list-meta">日割り / 月額参考 ' + yen(invoice.monthly) + ' / 単価 ' + yen(contractMonthlyUnitPrice(contract)) + '</div></div>' +
         '<div><strong>' + yen(plannedRevenue) + '</strong><div class="list-meta">予定総額</div></div>' +
         '<div><span class="' + statusClass(contract.status) + '">' + escapeHtml(contract.status) + '</span></div>' +
         '<div class="list-meta">' + escapeHtml(contract.memo || "") + '</div>' +
@@ -866,6 +889,7 @@ console.log("Rental app script loaded");
       return item.name;
     });
     updateContractDealerFields();
+    updateContractProductFields();
   }
 
   function fillProductCatalogSelect() {
@@ -916,6 +940,14 @@ console.log("Rental app script loaded");
     var dealer = byId("dealers", getInput("contractDealer") ? getInput("contractDealer").value : "");
     setValue("contractContact", dealer && dealer.contact ? dealer.contact : "");
     setValue("contractContactPhone", dealer && dealer.phone ? dealer.phone : "");
+  }
+
+  function updateContractProductFields() {
+    var product = byId("products", getInput("contractProduct") ? getInput("contractProduct").value : "");
+    var priceInput = getInput("contractMonthlyPrice");
+    if (priceInput && !priceInput.value) {
+      priceInput.value = product ? Number(product.price || 0) : "";
+    }
   }
 
   function renderAll() {
@@ -1036,6 +1068,7 @@ console.log("Rental app script loaded");
       targetFormId = "contractForm";
       setValue("contractId", item.id);
       setValue("contractProduct", item.productId);
+      setValue("contractMonthlyPrice", contractMonthlyUnitPrice(item));
       setValue("contractDealer", item.dealerId);
       updateContractDealerFields();
       setValue("contractStart", item.startDate);
@@ -1103,6 +1136,7 @@ console.log("Rental app script loaded");
         id: getInput("contractId").value || createId(),
         productId: getInput("contractProduct").value,
         dealerId: getInput("contractDealer").value,
+        monthlyPrice: Number(getInput("contractMonthlyPrice").value || 0),
         startDate: getInput("contractStart").value,
         plannedEndDate: getInput("contractEndPlan").value,
         returnDate: getInput("contractReturn").value,
@@ -1112,6 +1146,7 @@ console.log("Rental app script loaded");
       });
       resetForm("contractForm");
       setValue("contractQuantity", 1);
+      setValue("contractMonthlyPrice", "");
     });
   }
 
@@ -1125,6 +1160,7 @@ console.log("Rental app script loaded");
         resetForm(pair[1]);
         if (pair[1] === "contractForm") {
           setValue("contractQuantity", 1);
+          setValue("contractMonthlyPrice", "");
         }
       });
     });
@@ -1171,6 +1207,10 @@ console.log("Rental app script loaded");
     });
 
     getInput("contractDealer").addEventListener("change", updateContractDealerFields);
+    getInput("contractProduct").addEventListener("change", function () {
+      setValue("contractMonthlyPrice", "");
+      updateContractProductFields();
+    });
     getInput("saveCloudSettings").addEventListener("click", async function () {
       var config = {
         url: getInput("supabaseUrl").value.trim(),
@@ -1230,7 +1270,7 @@ console.log("Rental app script loaded");
       }));
     }
     if (type === "contracts" || type === "billing") {
-      return [["請求先", "販売店名", "担当者", "担当者電話番号", "商品名", "品番", "請求対象月", "開始日", "終了予定日", "日割り有無", "今月の請求予定額", "予定総額", "ステータス", "メモ", "月額金額（参考）"]].concat(state.contracts.map(function (contract) {
+      return [["請求先", "販売店名", "担当者", "担当者電話番号", "商品名", "品番", "請求対象月", "開始日", "終了予定日", "日割り有無", "今月の請求予定額", "予定総額", "契約月額単価", "ステータス", "メモ", "月額金額（参考）"]].concat(state.contracts.map(function (contract) {
         var product = byId("products", contract.productId);
         var dealer = dealerForContract(contract);
         var invoice = contractInvoiceDetail(contract);
@@ -1247,6 +1287,7 @@ console.log("Rental app script loaded");
           invoice.isProrated ? "あり" : "なし",
           invoice.invoice,
           contractPlannedRevenue(contract),
+          contractMonthlyUnitPrice(contract),
           contract.status,
           contract.memo,
           invoice.monthly
